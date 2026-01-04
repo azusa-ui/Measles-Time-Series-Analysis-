@@ -1,0 +1,1305 @@
+---
+title: "Measles Time Series Analysis (2010-2024)"
+author: "Ahmad Zulfahmi Sha'ari"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    css: "styles.css"
+---
+
+```{css, echo=FALSE}
+#toc {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  width: 250px;
+  z-index: 9999;
+  background: rgba(255, 255, 255, 0.8); /* Add transparency */
+  padding: 10px;
+  box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+#toc li {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+#toc a {
+  font-family: Arial, sans-serif;
+  text-decoration: none;
+}
+
+#toc a:hover {
+  color: #007bff; /* Add a hover effect */
+}
+
+---
+```
+# Prepare environment
+
+## 1.Load required package
+
+```{r}
+
+#Load libraries
+library(tidyverse) #data manipulation
+library(summarytools) #exploration
+library(QuantPsyc) #classification table
+library(ResourceSelection) #hosmer-lemeshow test
+library(pROC)      #roc-auc
+library(DescTools) #pseudoR2
+library(janitor)  # Data cleaning and tidying
+library(gtsummary) # Create publication-ready tables
+library(gt) 
+library(dplyr)   
+library(stringr)    
+library(ggplot2)  
+library(fpp2)     # Time series forecasting
+library(readxl) 
+library(seasonal) # Seasonal decomposition
+library(tseries)  # Time series analysis
+library(urca)     # Unit root tests 
+library(htmlwidgets)
+
+```
+
+## 2. Set working directory
+
+```{r}
+setwd("C:/Users/User/Desktop/4th NEC/times series/MEASLES_timeseries")
+```
+
+# Trend of Measles Cases
+
+## 1. Yearly trend
+
+``{r}
+names(demog_data)
+measles_year <- demog_data %>% 
+  group_by(year) %>% 
+  count() %>% 
+  print(n = 7)
+
+
+ggplot(measles_year, aes(x=year, y=n)) +
+  geom_line(size = 1) +
+  labs(x="Year", y="Number of Cases ", title="Yearly Measles Cases(2010-2024)") +
+ theme_bw()
+```
+
+## 2. Weekly trend
+
+``{r}
+measles_week <- demog_data %>% 
+  group_by(year, epid_week) %>% 
+  count() %>% 
+  print(n = 52)
+
+ggplot(measles_week, aes(x=epid_week, y=n, group=year, color = as.factor(year))) +
+  geom_line(size = 0.8) +
+  labs(x="Epid Week", y="Number of Cases", title="Measles according to Epid Week and Year", color="Year") +
+  scale_color_brewer(palette="Set2") + 
+  scale_y_continuous(labels=function(x) format(x, digits=1, nsmall=0)) +
+ theme_bw()
+```
+
+``{r}
+ggplot(measles_week %>% filter(year == "2010"), 
+       aes(x=epid_week, y=n)) +
+  geom_line(size = 0.8, color = "blue") +
+  labs(x="Epid Week", y="Number of Cases", title= " Measles in 2010") +
+  scale_color_brewer(palette="Set2") + 
+  scale_y_continuous(labels=function(x) format(x, digits=1, nsmall=0)) +
+  theme_bw()
+  #transition_reveal(epid_week)
+```
+
+``{r}
+ggplot(measles_week %>% filter(year == "2023"), 
+       aes(x=epid_week, y=n)) +
+  geom_line(size = 0.8, color = "blue") +
+  labs(x="Epid Week", y="Number of Cases", title= " Measles in 2023") +
+  scale_color_brewer(palette="Set2") + 
+  scale_y_continuous(labels=function(x) format(x, digits=1, nsmall=0)) +
+  theme_bw()
+```
+
+``{r}
+ggplot(measles_week %>% filter(year == "2024"), 
+       aes(x=epid_week, y=n)) +
+  geom_line(size = 0.8, color = "blue") +
+  labs(x="Epid Week", y="Number of Cases", title= " Measles in 2024") +
+  scale_color_brewer(palette="Set2") + 
+  scale_y_continuous(labels=function(x) format(x, digits=1, nsmall=0)) +
+  theme_bw()
+  # + transition_reveal(epid_week
+```
+
+# Time Series analysis
+
+## 1. Data Preparation
+
+#start of month/year in dataset
+
+```{r}
+# Load data & ts objects
+measles <- read_excel("measles_tsdata.xls")
+
+measles <- ts(measles, start = 2010,frequency = 12) 
+
+measles_ts <- measles[, 1]  # Select the first column, as stl need to be univariate
+
+start(measles) #start of month/year in dataset
+start(measles_ts)
+
+```
+
+## **2. Exploratory Data Analysis (EDA)**
+
+```{r}
+# Explore 'measles' data set
+summary(measles)
+head(measles)
+tail(measles)
+
+# Figure 1: Monthly cases. 
+autoplot(measles[,"case"]) +  # Add a title, x-axis, and y-axis to the graph. Note the '+' sign.
+  ggtitle("Notified measles cases in XXX : 2010-2024") +
+  xlab("year") +
+  ylab("case")
+```
+
+## 3. Seasonal analysis
+
+### 3.1 Seasonal Plots
+
+#### 3.1.1 Seasonal and Polar
+
+```{r}
+######
+# Seasonal plots
+
+# Figure 2: Seasonal plot of monthly  
+ggseasonplot(measles,year.labels = TRUE, year.labels.left = TRUE) +
+  ylab("case") +
+  ggtitle("Seasonal plot: measles cases in XXX")
+
+# Figure 3: Polar seasonal plot of monthly   
+ggseasonplot(measles, polar = TRUE) +
+  ylab("case") +
+  ggtitle("Polar seasonal plot: measles cases in XXX")
+```
+
+#### **3.1.2 Seasonal Subseries Plot**
+
+```{r}
+# Seasonal subseries plots
+
+# Seasonal subseries plot of monthly  
+ggsubseriesplot(measles) +
+  ylab("case") +
+  ggtitle("Seasonal subseries plot: measles cases in XXX")
+```
+
+#### 3.1.3 Spectral Analysis for Seasonality
+
+```{r}
+# Spectral analysis using the periodogram
+spectral_analysis <- spec.pgram(measles, 
+                                spans = c(3, 3),  # Smoothing window to reduce noise
+                                main = "Spectral Analysis of Measles Cases in XXX",
+                                xlab = "Frequency", 
+                                ylab = "Spectral Density")
+
+# The plot will show the frequency components and their corresponding spectral density
+
+```
+
+##### 3.1.3.1 Fast Fourier Transform (FFT) for spectral analysis
+
+```{r}
+# Perform FFT to get the frequency components
+fft_result <- fft(measles_ts)
+
+# Calculate the power spectrum
+power_spectrum <- Mod(fft_result)^2
+
+# Plot the power spectrum
+plot(power_spectrum[1:(length(power_spectrum) / 2)], 
+     type = "l", 
+     col = "blue", 
+     xlab = "Frequency", 
+     ylab = "Power", 
+     main = "Power Spectrum of Measles Cases")
+
+```
+
+#Comment :
+
+-   Spectral analysis confirms the presence of a complex seasonal pattern, characterized by a dominant cycle of approximately 2.4 months and additional longer-term cycles
+
+-   **Cycle Length:** The dominant frequency of around 5 aligns with the peaks observed in your seasonal plot, which showed peaks roughly every 2-3 months.
+
+-   **Complex Seasonality:** The presence of multiple peaks and the absence of very sharp peaks in the spectral plot support the idea that the seasonality in your data is not a simple, perfectly regular pattern. It might be influenced by multiple factors and exhibit some variability over time.
+
+### **3.2 Autocorrelation and Lag**
+
+The **Autocorrelation Function (ACF)** is a statistical tool used to measure how well a time series correlates with itself at different time lags. In simpler terms, it's a way to see how much the current value of a time series depends on its previous values.
+
+-   **Lag** refers to how many time steps back we are looking at. For example, lag 1 means comparing a value to the value just before it, lag 2 compares it to the value two time steps ago, and so on.
+
+-   **Autocorrelation values** range from **-1 to 1**:
+
+    -   **1** means perfect positive correlation: the value at this lag is perfectly similar to the current value.
+
+    -   **-1** means perfect negative correlation: the value at this lag is perfectly opposite to the current value.
+
+    -   **0** means no correlation: the value at this lag has no relation to the current value.
+
+```{r}
+# Lag plots
+
+acf(measles, lag.max = 50, plot = FALSE)
+
+acf(measles, lag.max = 50, plot = T)
+
+# Autocorrelation
+# Time series patterns in ACF plots
+
+measles %>%
+  ggAcf(lag.max = 50, plot = FALSE) 
+
+# Figure: Autocorrelation function  
+measles %>%
+  ggAcf(lag.max = 50) # Use ggAcf(lag.max = n) to graph n lags on ACF
+
+# The Ljung-Box test: It is a  statistical test of whether any of a group of autocorrelations of 
+# a time series are different from zero. Instead of testing randomness at each distinct lag, 
+# it tests the "overall" randomness based on a number of lags.
+
+# H0: The series is i.i.d
+# H1: The series exhibits serial correlation
+measles %>%      
+  Box.test(lag = 24, fitdf = 0, type = "Lj")
+# "Here we get a large p-value; we fail to reject H₀. 
+# The series does not exhibit significant serial correlation and may be considered white noise."
+
+```
+
+#\*Comment\* : ACF showed no clear spikes at regular intervals, suggesting that **seasonality is not very pronounced** in this data. The **Box-Ljung test result suggests that there is no significant autocorrelation** , supports the idea that the data might not have the temporal dependencies (i.e., past values influencing future values).
+
+## 4 . Time Series Decomposition
+
+```{r}
+# Chapter Time series decomposition
+
+# Figure 6.4: Measles cases over year: XXX
+measles %>% 
+  autoplot() + 
+  xlab("Year") + 
+  ylab("Cases") +
+  ggtitle("Measles cases over year: XXX")
+
+# Figure 6.5: Measles cases over year: XXX along with the 5-MA estimate of the trend-cycle
+MA <- measles %>%
+  autoplot(series = "Data") + # plot the original series, name it 'Data'
+  autolayer(ma(measles, 3), series = "5-MA") + # plot 5-MA series, name it '5-MA'
+  xlab("Year") + 
+  ylab("Cases") +
+  ggtitle("Measles cases over year: XXX") +
+  scale_colour_manual(values=c("Data"="grey50","5-MA"="red"),
+                      breaks=c("Data","5-MA"))
+
+MA # Look at the data
+```
+
+#Comment on previous ACF : As the lags increase, **autocorrelations decay**, with some **seasonal peaks** visible at regular intervals, which suggests there is a **seasonal component** in the data.
+
+The fact that the **autocorrelation is relatively stable and doesn't show significant growth with increasing lag** suggests that **seasonal fluctuations are roughly constant in magnitude**.
+
+-   If the seasonal fluctuations in your data are **roughly constant in magnitude** over time (i.e., the magnitude of the seasonal effect doesn't change much), then an **additive decomposition** would be appropriate.
+
+<!-- -->
+
+-   If the seasonal fluctuations grow larger or smaller as the trend increases (i.e., the seasonal variations are proportional to the trend), then multiplicative decomposition would be more suitable.
+
+### **4.1 Classical Decomposition**
+
+```{r}
+measles %>% 
+  decompose(type = "additive") %>% 
+  autoplot() + 
+  xlab("Year") +
+  ggtitle("Classical additive decomposition of 
+          Measles cases in XXX")
+          
+# Plot trend only
+decomposed_data <- decompose(measles, type = "additive")
+autoplot(decomposed_data$trend) + 
+  xlab("Year") + 
+  ggtitle("Trend Component of Measles Cases in XXX")
+  
+# Create a data frame for plotting
+df <- data.frame(
+  Year = time(measles),  # Time series time stamps
+  Original = as.numeric(measles),  # Original data
+  Trend = as.numeric(decomposed_data$trend)  # Trend component
+)
+
+# Plot both original data and trend on the same plot
+ggplot(df, aes(x = Year)) +
+  geom_line(aes(y = Original, color = "Measles Cases"), size = 1) +
+  geom_line(aes(y = Trend, color = "Trend"), size = 1, linetype = "dashed") +
+  labs(title = "Measles Incidence and Trend Component in XXX: 2010-2024",
+       x = "Year",
+       y = "Measles Incidence") +
+  scale_color_manual(values = c("Measles Cases" = "orange", "Trend" = "blue")) +
+  theme_minimal() +
+  theme(
+  legend.title = element_blank(),
+    legend.position = c(0.05, 0.95),
+    legend.justification = c("left", "top"),
+    legend.text = element_text(size = 16)
+  )
+# Save the plot with high resolution
+ggsave("incidence_trend.jpeg", width = 16, height = 12, dpi = 1080)
+```
+
+#Comment : **Discrepancy between Graph and ACF/Box-Ljung test:** The seasonality might be present but relatively weak compared to the other components (trend and remainder). The ACF might not be sensitive enough to pick up on this subtle seasonality.
+
+```{r}
+# classical multiplicative decomposition
+measles %>% 
+  decompose(type = "multiplicative") %>% 
+  autoplot() + 
+  xlab("Year") +
+  ggtitle("Classical multiplicative decomposition of 
+          Measles cases in XXX")
+
+```
+
+### 4.2 X11 Decomposition
+
+```{r}
+# Figure 6.9: An X11 decomposition
+library(seasonal) # You may need to install seasonal package.
+measles %>% 
+  seas(x11 = "") %>%
+  autoplot() +
+  ggtitle("X11 decomposition of Measles cases in XXX")
+# Notice that the seasonal component is allowed to vary slowly over time.
+
+# Figure 6.10
+fit <- measles %>% 
+  seas(x11 = "")
+
+measles %>% 
+  autoplot(series = "Cases") + # plot original series, name it 'Data'
+  autolayer(trendcycle(fit), series = "Trend") + # extract the trend-cycle component using trendcycle(), name it 'Trend'  
+  autolayer(seasadj(fit), series = "Seasonally Adjusted") + # use seasadj() to compute the seasonally adjusted time series
+  xlab("Year") + 
+  ylab("New orders index") +
+  ggtitle("Measles cases in XXX") +
+  scale_colour_manual(values = c("gray", "blue", "red"),
+                      breaks = c("Data", "Seasonally Adjusted", "Trend"))
+```
+
+### 4.3 Seasonal Extraction in ARIMA Time Series (SEATS) decomposition
+
+```{r}
+# Figure 6.12: A SEATS decomposition.
+measles %>% 
+  seas() %>%
+  autoplot() +
+  ggtitle("SEATS decomposition of Measles cases in XXX")
+```
+
+### 4.4 Seasonal and Trend decomposition using Loess (STL ) decomposition
+
+```{r}
+##########################################
+# Section 6.6 STL decomposition
+measles_ts <- measles[, 1]  # Select the first column, as stl need to be univariate
+
+class(measles_ts)
+
+measles_stl <- measles_ts %>%
+  stl(t.window = 13, 
+      s.window = "periodic", 
+      robust = TRUE) %>%
+  autoplot()
+
+measles_stl
+# s.window: either the character string "periodic" or the span (in lags) of the loess window for 
+# seasonal extraction, which should be odd and at least 7, according to Cleveland et al. 
+# This has no default.
+# t.window : the span (in lags) of the loess window for trend extraction, which should be odd
+# The above arguments control how rapidly the trend-cycle and seasonal components can change. 
+# Smaller values allow for more rapid changes.
+# robust: logical (TURE/FALSE) indicating if robust fitting be used in the loess procedure.
+```
+
+### 4.5 Stationarity and differencing
+
+#comment : If the time series has a strong trend, it can mask the seasonality in the ACF plot. The ACF is designed for stationary data, thus does the seasonality just an artifact? if it still present after differencing, the seasonality actually existed !
+
+```{r}
+# ACF plot for identifying non-stationary 
+# For a stationary time series, the ACF will drop to zero relatively quickly, while the ACF of non-stationary data decreases slowly.
+
+#plot origin data
+acf(measles, lag.max = 50, plot = TRUE)
+
+#or
+# plot the ACF/PACF
+measles %>%
+  ggAcf()  
+
+measles %>%
+  ggPacf()  
+
+
+#diff by 1
+measles_diff <- diff(measles, differences = 1)
+
+#Re-examine the ACF of the differenced data
+acf(measles_diff, lag.max = 50, plot = TRUE)
+
+#or  
+measles %>%
+  diff() %>% # take the first difference
+  ggAcf() # plot the ACF
+
+# The ACF of the differenced looks just like that of a white noise series, stationary
+# We can also use the Ljung-Box test 
+
+measles %>%
+  Box.test(lag = 10, type = "Ljung-Box")
+# A small p-value implies the series is not white noise, non-stationary.
+
+measles %>%
+  diff() %>%
+  Box.test(lag = 10, type = "Ljung-Box")
+# A large p-value implies the series is white noise, stationary.
+# Note: This is a very strong test. Use either ADF or KPSS instead.
+
+# Augmented Dickey-Fuller (ADF) test for stationarity
+# H0:  the series has a unit root (non-stationary series.)
+
+measles %>%
+  adf.test()
+# A small p-value implies rejection of the null hypothesis. There is no unit-root in this series, i.e., stationary series.
+# Therefore, this suggests that the original "measles" data is stationary.
+# significant indicate stationarity
+
+measles %>%
+  diffinv %>%
+  adf.test()
+# A large p-value implies fail to reject the null hypothesis. There is unit-root in this series, i.e., non-stationary series.  
+
+#plot pre diff additive decomposition 
+measles %>% 
+  decompose(type = "additive") %>% 
+  autoplot() + 
+  xlab("Year") +
+  ggtitle("Classical additive decomposition of 
+          Measles cases in XXX")
+
+#plot post diff additive decomposition 
+measles_diff %>% 
+  decompose(type = "additive") %>% 
+  autoplot() + 
+  xlab("Year") +
+  ggtitle("Classical additive decomposition of 
+          Measles cases in XXX (post differencing)")
+
+#plot pre additive multiply decomposition
+measles %>% 
+  decompose(type = "multiplicative") %>% 
+  autoplot() + 
+  xlab("Year") +
+  ggtitle("Classical multiplicative decomposition of 
+          Measles cases in XXX")
+
+#plot post additive multiply decomposition
+measles_diff %>% 
+  decompose(type = "multiplicative") %>% 
+  autoplot() + 
+  xlab("Year") +
+  ggtitle("Classical multiplicative decomposition of 
+          Measles cases in XXX (post differencing)")
+
+```
+
+#Comment: The decomposition plot after differencing still supports the use of an **Additive Model**, as the seasonal fluctuations are relatively constant and the seasonality is weak.
+
+-   **Original Decomposition Plot:** The initial decomposition clearly showed a distinct seasonal pattern with regular peaks and troughs.
+
+-   **Weaker Seasonality After Differencing:** While the seasonal component became less pronounced after differencing, it didn't completely disappear. This suggests that the seasonality is not merely an artifact of the original trend.
+
+### 4.6 Plotting Seasonality **:**
+
+```{r}
+library(ggplot2)
+library(lubridate)
+library(tibble)
+
+# Extract the seasonal component
+
+stl_decomp <- measles_ts %>%
+  stl(t.window = 13, s.window = "periodic", robust = TRUE)
+
+seasonal_comp <- stl_decomp$time.series[, "seasonal"]
+
+length(seasonal_comp)
+
+# Create a data frame for ggplot
+start(measles_ts)
+
+df <- tibble(
+  date = seq(as.Date("2010-01-01"), by = "month", length.out = length(seasonal_comp)),  
+  seasonal = seasonal_comp
+)
+
+# Plot the seasonal component with Month-Year on x-axis
+
+seasonal_plot <- ggplot(df, aes(x = date, y = seasonal)) +
+  geom_line(color = "blue") +
+  labs(title = "Seasonal Component of Measles Cases in XXX (2010-2024)",
+       x = "Month-Year",
+       y = "Seasonality") +
+  scale_x_date(date_labels = "%b-%Y", date_breaks = "6 month") +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+seasonal_plot
+
+##add label
+seasonal_plot2 <- ggplot(df, aes(x = date, y = seasonal)) +
+  geom_line(color = "blue") +
+  labs(title = "Seasonal Component of Measles Cases in XXX (2010-2024)",
+       x = "Month-Year",
+       y = "Seasonality") +
+  scale_x_date(date_labels = "%b-%Y", date_breaks = "6 month") +  
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  
+  # Highlight Peak Months with Vertical Lines (October)
+  geom_vline(xintercept = as.Date(c("2010-04-01", "2015-04-01", "2020-04-01","2024-04-01")), 
+             linetype = "dashed", color = "red", alpha = 0.5) +
+  
+  # Add Peak Labels (October)
+  annotate("text", x = as.Date("2010-04-01"), y = max(df$seasonal) + 0.5, 
+           label = "April 2010", vjust = 0, hjust = 0.5, size = 3) +
+  annotate("text", x = as.Date("2015-04-01"), y = max(df$seasonal) + 0.5, 
+           label = "April 2015", vjust = 0, hjust = 0.5, size = 3) +
+  annotate("text", x = as.Date("2020-04-01"), y = max(df$seasonal) + 0.5, 
+           label = "April 2020", vjust = 0, hjust = 0.5, size = 3) +
+  annotate("text", x = as.Date("2024-04-01"), y = max(df$seasonal) + 0.5, 
+           label = "April 2024", vjust = 0, hjust = 0.5, size = 3)
+
+seasonal_plot2
+
+# Save the plot with high resolution
+ggsave("seasonal_plot2.jpeg", width = 20, height = 12, dpi = 1280)
+```
+
+#To conclude for seasonality,
+
+-   **Measles cases in XXX exhibit a distinct seasonal pattern.** This is evidenced by the clear peaks and troughs observed in the time series decomposition.
+
+-   **Recurring Peaks:** Measles cases in XXX exhibit multiple seasonal peaks, with the most prominent occurring in October. Noticeable increases are also observed in May and July.
+
+-   **The seasonality is likely driven by a combination of factors,** including school terms, weather patterns, and potentially holiday gatherings. Further investigation is needed to pinpoint the specific drivers.
+
+-   **While seasonality is present, it is not the sole determinant of measles dynamics.** The trend and random fluctuations also play significant roles.
+
+-   **Understanding the seasonality of measles is crucial for public health planning.** This knowledge can inform targeted vaccination campaigns, public awareness initiatives, and resource allocation strategies.
+
+    ## 5. Forecasting Model Selection
+
+    ### 5.1 Splitting Data for Training and Testing
+
+```{r}
+### Selecting forecast model between SARIMA/ETS/STL+ARIMA
+#### Time series cross-validation  
+########################################################
+#Check the start and end of the time series
+start(measles_ts)  # Should give the start date of the time series
+end(measles_ts)    # Should give the end date of the time series
+
+# Define the training data: from start (2010) to Dec 2021
+measles_train <- window(measles_ts, start = c(2010, 1), end = c(2022, 12))
+
+# Define the test data: from Jan 2022 onward
+measles_test <- window(measles_ts, start = c(2023, 1))
+
+# Check the lengths of both sets
+length(measles_train)  # Should give the number of months in the training set
+length(measles_test)   # Should give the number of months in the test set
+
+
+```
+
+### 5.2 ARIMA
+
+#COMMENT: As we will using auto.arima, we will put original data, not differenced data as it automatically determines the appropriate order of differencing.
+
+```{r}
+
+# How to pick p and q in ARIMA model?
+
+# Figure 8.9: ACF of quarterly percentage change in US consumption.
+
+ggAcf(measles, main = "")
+
+# Figure 8.10: PACF of quarterly percentage change in US consumption. 
+
+ggPacf(measles, main = "")
+
+# The pattern in the first three spikes is what we would expect from an ARIMA(3,0,0), as the PACF tends to decrease.
+
+(fit2 <- Arima(measles, order=c(2,1,1)))
+
+# sometimes, manual selection model is can be slightly better than the model identified by auto.arima()
+# AICc value of 1159.64       
+
+# The auto.arima() function did not find this model because it does not consider all possible models in its search. You can make it work harder by using the arguments stepwise = FALSE and approximation = FALSE.
+
+(fit3 <- auto.arima(measles, 
+                    seasonal = FALSE,  # We will consider seasonal arima models next. 
+                    stepwise = FALSE, 
+                    approximation = FALSE))
+
+# This time, auto.arima() has found the same model that we identified from the ACF and PACF plots
+# AICc value of 1156.47
+
+fit1 <- Arima(measles, order = c(3, 1, 0))
+summary(fit1)
+fit1$aicc # This will show you AICc for this model
+
+fit2 <- Arima(measles, order = c(4, 1, 0))
+summary(fit2)
+
+fit3 <- Arima(measles, order = c(2, 1, 0))
+summary(fit3)
+
+fit4 <- Arima(measles, order = c(3, 1, 1))
+summary(fit4)
+
+fit5 <- Arima(measles, order = c(1, 1, 1))
+summary(fit5)
+
+fit6 <- Arima(measles, order = c(4, 1, 1))
+summary(fit6)
+checkresiduals(fit6)
+# The residuals are behaving like white noise (a large p-value).
+
+# Step 7: Forecasts from the chosen model.
+fit6 %>%
+  forecast() %>%
+  autoplot()
+
+#Using autoarima
+# 1. ARIMA
+arima_model <- auto.arima(measles_train, seasonal = FALSE)
+arima_forecast <- forecast(arima_model, h = length(measles_test))  
+
+# Calculate RMSE for ARIMA
+arima_rmse <- sqrt(mean((arima_forecast$mean - measles_test)^2))
+arima_rmse
+
+# Calculate accuracy 
+accuracy(arima_forecast, measles_test)
+
+# Forecast future values using the ARIMA model
+arima_forecast_future <- forecast(arima_model, h = 12)  # Forecast the next 12 months (adjust h as needed)
+         
+# Plot the forecasted values
+plot(arima_forecast_future, main = "ARIMA Forecast for Measles Time Series", xlab = "Time", ylab = "Measles Cases")
+         
+#Evaluate accuracy for ARIMA forecast
+accuracy(arima_forecast_future, measles_test)
+         
+# Plot actual vs forecasted values
+plot(measles_test, main = "Actual vs ARIMA Forecast", col = "blue", xlab = "Time", ylab = "Measles Cases")
+ lines(arima_forecast_future$mean, col = "red", lwd = 2)  # Add forecasted line in red
+ legend("topleft", legend = c("Actual", "ARIMA Forecast"), col = c("blue", "red"), lty = c(1, 1))
+ 
+#(auto.fit <- auto.arima(measles))
+#(checkresiduals(auto.fit))
+
+#auto.arima(measles_ts,
+#           stepwise = FALSE,
+#           approximation = FALSE)
+
+#(fit3 <- auto.arima(measles_ts,
+#                    seasonal = FALSE,  # We will consider seasonal arima models next.
+#                    stepwise = FALSE,
+#                    approximation = FALSE))
+
+```
+
+### 5.3 SARIMA
+
+#COMMENT: As we suspect seasonality in data, we will set to seasonal TRUE to consider SARIMA model as well.
+
+```{r}
+
+# check how many differences are required to make series stationary.
+ndiffs(measles) # This is an I(1) series
+nsdiffs(measles) # D = 0   no need to diff seasonal
+
+measles %>% 
+    ggtsdisplay()
+  
+measles %>% 
+  diff() %>% # first difference only, no need to diff seasonal
+  ggtsdisplay()
+  
+# The data are clearly non-stationary, with some seasonality, so we will first take a seasonal difference.  Always take the seasonal difference first.
+measles %>% 
+  diff(lag = 12) %>% # Difference at lag 12, 
+  ggtsdisplay()
+  
+# It appears to be non-stationary, so we take an additional first difference
+measles %>% 
+  diff(lag = 12) %>% # seasonal difference
+  diff() %>% # first difference
+  ggtsdisplay()
+
+measles %>%
+  Arima(order = c(1, 1, 1), 
+        seasonal = c(1, 1, 1)) %>%
+  residuals() %>%
+  ggtsdisplay()
+
+##Model Option	
+#Model 1	SARIMA(1,1,1)(0,1,1)[12]	Balanced model; from earlier suggestion
+
+m1 <- Arima(measles, 
+              order = c(1, 1, 1), 
+              seasonal = c(0, 1, 1))
+m1
+
+checkresiduals(m1)
+  
+m1 %>% 
+  forecast(h = 12) %>% 
+  autoplot()
+
+accuracy(m1)
+  
+#Model 2	SARIMA(0,1,1)(0,1,1)[12]	Simpler (drop AR); check with AIC
+m2 <- Arima(measles, 
+              order = c(0, 1, 1), 
+              seasonal = c(0, 1, 1))
+m2
+
+checkresiduals(m2)
+  
+m2 %>% 
+  forecast(h = 12) %>% 
+  autoplot()
+
+accuracy(m2)
+
+#Model 3	SARIMA(0,1,0)(0,1,1)[12]	Parsimonious; good if ACF/PACF nearly white-noise
+m3<- Arima(measles, 
+              order = c(0, 1, 0), 
+              seasonal = c(0, 1, 1))
+m3
+
+checkresiduals(m3)
+  
+m3 %>% 
+  forecast(h = 12) %>% 
+  autoplot()
+  
+accuracy(m3)
+
+#Model 4	Auto.arima()	Use as benchmark and validation 
+m4 <- auto.arima(measles, 
+           stepwise = FALSE, 
+           approximation = FALSE)
+m4
+
+checkresiduals(m4)
+  
+m4 %>% 
+  forecast(h = 12) %>% 
+  autoplot()
+  
+accuracy(m4)
+
+fitted_values <- fitted(m1)
+actual_values <- measles
+
+#cross validate model 1
+# Fit the ARIMA model on the training data
+m1 <- Arima(measles_train, order = c(1, 1, 1), seasonal = c(0, 1, 1))
+
+# Forecast for the next 24 months (2023-2024)
+forecast_values <- forecast(m1, h = 24)
+
+# Plot the forecast against the actual data
+autoplot(forecast_values) +
+  autolayer(measles_test, series = "Actual") +
+  ggtitle("ARIMA Forecast vs Actual Data (2023-2024)")
+
+# Check the accuracy of the forecast
+accuracy(forecast_values, measles_test)
+
+# If you want to compare the forecasted values with the actual ones
+comparison <- data.frame(
+  Date = time(measles_test),
+  Actual = as.numeric(measles_test),
+  Forecast = forecast_values$mean
+)
+
+# Print the comparison
+print(comparison)
+
+#using autoarima
+# 1. SARIMA
+sarima_model <- auto.arima(measles_train, seasonal = TRUE)
+
+# Forecast with SARIMA
+sarima_forecast <- forecast(sarima_model, h = length(measles_test))
+
+# Calculate RMSE for SARIMA
+sarima_rmse <- sqrt(mean((sarima_forecast$mean - measles_test)^2))
+sarima_rmse
+
+# Calculate accuracy 
+accuracy(sarima_forecast, measles_test)
+
+#Forecast future values using the SARIMA model
+sarima_forecast_future <- forecast(sarima_model, h = 12)  # Forecast the next 12 months (adjust h as needed)
+         
+# Plot the forecasted values
+plot(sarima_forecast_future, main = "SARIMA Forecast for Measles Time Series", xlab = "Time", ylab = "Measles Cases")
+         
+#Evaluate accuracy for ARIMA forecast
+accuracy(sarima_forecast_future, measles_test)
+         
+# Plot actual vs forecasted values
+plot(measles_test, main = "Actual vs SARIMA Forecast", col = "blue", xlab = "Time", ylab = "Measles Cases")
+ lines(sarima_forecast_future$mean, col = "red", lwd = 2)  # Add forecasted line in red
+ legend("topleft", legend = c("Actual", "SARIMA Forecast"), col = c("blue", "red"), lty = c(1, 1))
+```
+
+### 5.4 STL+ARIMA
+
+```{r}
+# 2. STL + ARIMA model
+stl_arima_model <- stlf(measles_train, method = 'arima')
+
+# Forecast with STL + ARIMA
+forecast_horizon <- max(length(measles_test), 12)  # Ensure h is long enough
+stl_arima_forecast <- forecast(stl_arima_model, h = forecast_horizon)
+
+# Calculate RMSE for STL + ARIMA
+stl_arima_rmse <- sqrt(mean((stl_arima_forecast$mean - measles_test)^2))
+stl_arima_rmse
+
+# Calculate accuracy
+accuracy(stl_arima_forecast, measles_test)
+
+# Forecast future values using the STL+ARIMA model
+stl_arima_forecast_future <- forecast(stl_arima_model, h = 12)  # Next 12 months
+
+# Plot the forecasted values
+plot(stl_arima_forecast_future, main = "STL+ARIMA Forecast for Measles Time Series", xlab = "Time", ylab = "Measles Cases")
+         
+#Evaluate accuracy for STL+ARIMA forecast
+accuracy(stl_arima_forecast_future, measles_test)
+         
+# Plot actual vs forecasted values
+plot(measles_test, main = "Actual vs STL+ARIMA Forecast", col = "blue", xlab = "Time", ylab = "Measles Cases")
+ lines(stl_arima_forecast_future$mean, col = "red", lwd = 2)  
+ legend("topleft", legend = c("Actual", "STL+ARIMA Forecast"), col = c("blue", "red"), lty = c(1, 1))
+```
+
+### 5.5 Exponential Smoothing (ETS)
+
+```{r}
+# 3. ETS model
+ets_model <- ets(measles_train)
+
+# Forecast with ETS
+ets_forecast <- forecast(ets_model, h = length(measles_test))
+
+# Calculate RMSE for ETS
+ets_rmse <- sqrt(mean((ets_forecast$mean - measles_test)^2))
+ets_rmse
+
+# Calculate accuracy ETS model
+accuracy(ets_forecast, measles_test)
+
+# Forecast future values using the ETS model
+ets_forecast_future <- forecast(ets_model, h = 12)  # Forecast the next 12 months (adjust h as needed)
+         
+# Plot the forecasted values
+plot(ets_forecast_future, main = "ETS Forecast for Measles Time Series", xlab = "Time", ylab = "Measles Cases")
+         
+#Evaluate accuracy for ETS forecast
+accuracy(ets_forecast_future, measles_test)
+         
+# Plot actual vs forecasted values
+plot(measles_test, main = "Actual vs ETS Forecast", col = "blue", xlab = "Time", ylab = "Measles Cases")
+ lines(ets_forecast_future$mean, col = "red", lwd = 2)  # Add forecasted line in red
+ legend("topleft", legend = c("Actual", "ETS Forecast"), col = c("blue", "red"), lty = c(1, 1))
+ 
+
+```
+
+### 5.6 Holt-Winter model
+
+```{r}
+
+# 4.  Apply Holt-Winters model
+holt_winters_model <- HoltWinters(measles_train)
+
+# Forecast with ETS
+hw_forecast <- forecast(holt_winters_model, h = length(measles_test))
+
+# Calculate RMSE for HW
+holt_winters_rmse <- sqrt(mean((hw_forecast$mean - measles_test)^2))
+holt_winters_rmse
+
+# Forecast future values using Holt-Winters model (for the next 12 months)
+hw_forecast_future <- forecast(holt_winters_model, h = 12)  # Forecast the next 12 months (adjust 'h' as needed)
+
+# Plot the forecasted values from Holt-Winters model
+plot(hw_forecast_future, main = "Holt-Winters Forecast for Measles Time Series", xlab = "Time", ylab = "Measles Cases")
+
+# Evaluate accuracy for Holt-Winters forecast (using actual test data)
+accuracy(hw_forecast_future, measles_test)
+
+# Plot Actual vs Forecasted values
+plot(measles_test, main = "Actual vs Holt-Winters Forecast", col = "blue", xlab = "Time", ylab = "Measles Cases")
+lines(hw_forecast_future$mean, col = "red", lwd = 2)  # Add forecasted line in red
+legend("topleft", legend = c("Actual", "Holt-Winters Forecast"), col = c("blue", "red"), lty = c(1, 1))
+
+```
+
+### 5.7 TBATS model
+
+```{r}
+# 5. TBATS model (Exponential smoothing state space model with Box-Cox transformation, ARMA errors, Trend and Seasonal components)
+
+# Fit the TBATS model
+tbats_model <- tbats(measles_train)
+
+# Forecast using the TBATS model
+tbats_forecast <- forecast(tbats_model, h = length(measles_test))
+
+# Calculate RMSE for TBATS model
+tbats_rmse <- sqrt(mean((tbats_forecast$mean - measles_test)^2))
+tbats_rmse
+
+# Forecast future values using TBATS model (for next 12 months)
+tbats_forecast_future <- forecast(tbats_model, h = 12)  # Forecast the next 12 months (adjust h as needed)
+
+# Plot the forecasted values using TBATS
+plot(tbats_forecast_future, main = "TBATS Forecast for Measles Time Series", xlab = "Time", ylab = "Measles Cases")
+
+# Evaluate accuracy for TBATS forecast
+accuracy(tbats_forecast, measles_test)
+
+# Plot Actual vs TBATS Forecasted values
+plot(measles_test, main = "Actual vs TBATS Forecast", col = "blue", xlab = "Time", ylab = "Measles Cases")
+lines(tbats_forecast$mean, col = "red", lwd = 2)  # Add forecasted line in red
+legend("topleft", legend = c("Actual", "TBATS Forecast"), col = c("blue", "red"), lty = c(1, 1))
+
+
+# ###5.Prophet model
+# library(prophet)
+# 
+# measles_ts <- measles[, 1]
+# 
+# # Ensure that the 'measles_train' dataset has the correct format
+# # Convert time index to 'ds' for Prophet
+# # Convert the measles data to numeric
+# measles_train_p <- data.frame(
+#   ds = time(measles_train),  
+#   y = as.numeric(measles_train)
+# )
+# 
+# # Convert measles_test 
+# measles_test_p <- data.frame(
+#   ds = time(measles_test),
+#   y = as.numeric(measles_test)
+# )
+# 
+# # Check if the data looks correct
+# head(measles_train_p)
+# head(measles_test_p)
+# 
+# # Fit the Prophet model
+# prophet_model <- prophet(measles_train_p)
+# 
+# # Create a dataframe with future dates for forecasting
+# future_dates <- make_future_dataframe(prophet_model, periods = length(measles_test_p))
+# 
+# # Make predictions
+# prophet_forecast <- predict(prophet_model, future_dates)
+# 
+# # Evaluate RMSE (comparing the forecasted values with the actual test data)
+# prophet_rmse <- sqrt(mean((prophet_forecast$yhat[length(measles_train_p)+1:length(measles_test_p)] - measles_test_p$cases)^2))
+# prophet_rmse
+
+# Plot the Prophet forecast
+#plot(prophet_model, prophet_forecast, main = "Prophet #Forecast for Measles Cases", xlab = "Time", ylab = #"Measles Cases")
+
+# Plot the forecast components (trend, yearly seasonality, etc.)
+#prophet_components <- #prophet_plot_components(prophet_model, prophet_forecast)
+
+```
+
+### 5.8 Compare RMSE
+
+```{r}
+
+##TABLE PRESENTATION##
+
+# Calculate MAE, MSE, MAPE, RMSE for ARIMA model
+mae_arima <- mean(abs(arima_forecast$mean - measles_test))
+mse_arima <- mean((arima_forecast$mean - measles_test)^2)
+mape_arima <- mean(abs((arima_forecast$mean - measles_test) / measles_test)) * 100
+rmse_arima <- sqrt(mse_arima)
+
+# Calculate MAE, MSE, MAPE, RMSE for SARIMA model
+mae_sarima <- mean(abs(sarima_forecast$mean - measles_test))
+mse_sarima <- mean((sarima_forecast$mean - measles_test)^2)
+mape_sarima <- mean(abs((sarima_forecast$mean - measles_test) / measles_test)) * 100
+rmse_sarima <- sqrt(mse_sarima)
+
+# Calculate MAE, MSE, MAPE, RMSE for STL + ARIMA model
+ mae_stl_arima <- mean(abs(stl_arima_forecast$mean - measles_test))
+ mse_stl_arima <- mean((stl_arima_forecast$mean - measles_test)^2)
+ mape_stl_arima <- mean(abs((stl_arima_forecast$mean - measles_test) / measles_test)) * 100
+ rmse_stl_arima <- sqrt(mse_stl_arima)
+
+# Calculate MAE, MSE, MAPE, RMSE for ETS model
+mae_ets <- mean(abs(ets_forecast_future$mean - measles_test))
+mse_ets <- mean((ets_forecast_future$mean - measles_test)^2)
+mape_ets <- mean(abs((ets_forecast_future$mean - measles_test) / measles_test)) * 100
+rmse_ets <- sqrt(mse_ets)
+
+# Calculate MAE, MSE, MAPE, RMSE for Holt-Winters model
+mae_hw <- mean(abs(hw_forecast$mean - measles_test))
+mse_hw <- mean((hw_forecast$mean - measles_test)^2)
+mape_hw <- mean(abs((hw_forecast$mean - measles_test) / measles_test)) * 100
+rmse_hw <- sqrt(mse_hw)
+
+# Calculate MAE, MSE, MAPE, RMSE for TBATS model
+mae_tbats <- mean(abs(tbats_forecast$mean - measles_test))
+mse_tbats <- mean((tbats_forecast$mean - measles_test)^2)
+mape_tbats <- mean(abs((tbats_forecast$mean - measles_test) / measles_test)) * 100
+rmse_tbats <- sqrt(mse_tbats)
+
+# Create a data frame to compile the results for all models
+metrics_table <- data.frame(
+  Model = c("ARIMA", "SARIMA", "STL + ARIMA", "ETS", "Holt-Winters (HW)", "TBATS"),
+  MAE = c(mae_arima, mae_sarima, mae_stl_arima, mae_ets, mae_hw, mae_tbats),
+  MSE = c(mse_arima, mse_sarima, mse_stl_arima, mse_ets, mse_hw, mse_tbats),
+  MAPE = c(mape_arima, mape_sarima, mape_stl_arima, mape_ets, mape_hw, mape_tbats),
+  RMSE = c(rmse_arima, rmse_sarima, rmse_stl_arima, rmse_ets, rmse_hw, rmse_tbats)
+)
+
+# Print the compiled metrics table
+print(metrics_table)
+
+#####################
+## VIEW BEST MODEL ##
+#####################
+
+# Store RMSE values for each model in a data frame
+rmse_data <- data.frame(
+  Model = c("ARIMA", "SARIMA", "STL + ARIMA", "ETS", "Holt-Winters", "TBATS"),
+  RMSE = c(rmse_arima, rmse_sarima, rmse_stl_arima, rmse_ets, rmse_hw, rmse_tbats)  # Fixed missing STL + ARIMA
+)
+
+# Create a bar plot for RMSE values
+rmse_plot <- ggplot(rmse_data, aes(x = reorder(Model, RMSE), y = RMSE, fill = Model)) +
+  geom_bar(stat = "identity", color = "black", show.legend = FALSE) +
+  labs(title = "RMSE Comparison for Forecasting Models",
+       x = "Model",
+       y = "RMSE") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Print the RMSE plot
+print(rmse_plot)
+
+
+```
+
+### 5.9 Check Residuals for Final Model (TBATS chosen)
+
+```{r autoplot, echo=FALSE}
+  
+########################################################
+# Section : Residual diagnostics
+# Calculate residuals (Observed - Forecasted)
+
+# All of these methods for checking residuals are conveniently packaged into one R function
+
+measles_ts %>%         # time series data
+  tbats() %>%        
+  checkresiduals()  
+
+res <- residuals(tbats_model)
+
+# Plot the residuals
+plot(res, main = "Residuals from TBATS model", ylab = "Residuals", xlab = "Time")
+abline(h = 0, col = "red")  # Add a horizontal line at zero for reference
+
+# Check for normality of residuals (Histogram)
+hist(res, main = "Histogram of TBATS Residuals", xlab = "Residuals")
+
+# Check for autocorrelation in residuals (ACF plot)
+acf(res, main = "ACF of TBATS Residuals")
+
+# Portmanteau tests for autocorrelation
+
+# Box-Pierce test( simple, less reliable)
+Box.test(res, lag = 10, fitdf = 0)
+
+# Box-Ljung test (preferred)
+Box.test(res, lag = 10, fitdf = 0, type = "Lj")
+
+ 
+
+# These results reveal the following
+
+# 1- The residual are uncorrelated (i.i.d or white noise); p-value for the Ljung-Box test is large.
+# ACF plot also shows the same story.
+# 2- The time plot of residual is close to zero (graph 1)
+# 3- The time plot of residual exhibits a constant variance, with one anomaly (graph 1)
+# 4- The histogram reveals a constant variance
+# Overall evidence suggests that method works fine in this case.
+
+##Summary of Key Assumptions:
+#Independence of residuals (most important assumption).
+#Stationary residuals (constant mean/variance).
+#Constant variance of residuals (no changing volatility).
+#No trend in residuals.
+#Normality (optional but useful for statistical inference).
+```
+
+The diagnostic tests on the TBATS model showed no significant autocorrelation in the residuals, indicating that the model adequately captures the underlying patterns in the data.
+
+#################################################################### **The TBATS model is the most appropriate model for forecasting measles cases in XXX.** It outperforms other models in terms of accuracy and adequately captures the seasonality in the data.
+
+```{r}
+#Model fit stats (ljung-Box Test)
+
+# Your Ljung-Box test code for each model
+res_arima <- residuals(arima_model)
+box_arima <- Box.test(res_arima, lag = 10, fitdf = 0, type = "Lj")
+
+res_sarima <- residuals(sarima_model)
+box_sarima <- Box.test(res_sarima, lag = 10, fitdf = 0, type = "Lj")
+
+res_stl_arima <- residuals(stl_arima_model)
+box_stl_arima <- Box.test(res_stl_arima, lag = 10, fitdf = 0, type = "Lj")
+
+res_ets <- residuals(ets_model)
+box_ets <- Box.test(res_ets, lag = 10, fitdf = 0, type = "Lj")
+
+res_hw <- residuals(holt_winters_model)
+box_hw <- Box.test(res_hw, lag = 10, fitdf = 0, type = "Lj")
+
+res_tbats <- residuals(tbats_model)
+box_tbats <- Box.test(res_tbats, lag = 10, fitdf = 0, type = "Lj")
+
+# Compile results into a table
+ljung_table <- data.frame(
+  Model = c("ARIMA", "SARIMA", "STL + ARIMA", "ETS", "Holt-Winters", "TBATS"),
+  LjungBox_p_value = c(box_arima$p.value, box_sarima$p.value, 
+                       box_stl_arima$p.value, box_ets$p.value, 
+                       box_hw$p.value, box_tbats$p.value)
+)
+
+# Print the results table
+print(ljung_table)
+
+```
+
+### 5.10 Plot forecast for next 12 months (year 2025)
+
+```{r}
+# Extract the forecasts for the next 12 months
+forecast_dates <- seq(as.Date("2025-01-01"), by = "month", length.out = 12)  # Adjust start date if needed
+
+# Create a data frame for plotting
+forecast_df <- data.frame(
+  Date = forecast_dates,
+  PointForecast = as.numeric(tbats_forecast_future$mean),
+  Lower = as.numeric(tbats_forecast_future$lower[, 2]),
+  Upper = as.numeric(tbats_forecast_future$upper[, 2])
+)
+
+# Create the plot with legend
+forecast_plot <- ggplot(forecast_df, aes(x = Date, y = PointForecast)) +
+  geom_line(aes(color = "Forecast"), size = 1) +  # Add color aesthetic for the line
+  geom_ribbon(aes(ymin = Lower, ymax = Upper, fill = "95% Prediction Interval"), alpha = 0.2) +  # Add fill aesthetic for the ribbon
+  labs(title = "Forecasted Measles Cases in XXX (Year 2025)",
+       x = "Month",
+       y = "Number of Cases") +
+  scale_x_date(date_labels = "%b-%Y", date_breaks = "1 month") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_color_manual(name = "", values = c("Forecast" = "blue")) +  # Specify color for the line
+  scale_fill_manual(name = "", values = c("95% Prediction Interval" = "blue"))  # Specify color for the ribbon
+forecast_plot
+
+
+# Save the plot
+ggsave("forecast2_plot_future.jpeg", forecast_plot, width = 10, height = 6, units = "in", dpi = 300)
+```
+
+[Sidenotes:]{.underline}
+
+*Why RMSE is the Best Metric for Forecasting Measles Cases*
+
+a)  Penalizes Larger Errors: Measles cases can fluctuate significantly, and larger errors in prediction could be more critical. RMSE penalizes larger errors more severely, which is important in a health-related context like forecasting disease cases, where a large forecast error could impact planning and intervention efforts.
+
+b)  Units of Measurement: RMSE is in the same units as the original data (measles cases), making it easier to interpret and directly relate to real-world numbers. For example, if your forecast is off by 5 cases, RMSE will tell you how large the typical forecast error is in terms of actual measles cases. Widely Used:
+
+RMSE is commonly used in time series forecasting, especially for predicting counts or other continuous variables like cases of diseases, because it provides a good balance between ease of understanding and penalizing larger deviations from actual values.
+
+c)  Interpretability: It gives you an idea of how well the model's predictions match the actual data in a way that’s meaningful for decision-makers. A lower RMSE indicates better predictive accuracy, making it easier to evaluate different models.
+
+Since you are forecasting the Measles Incidence, RMSE is the best metric to evaluate your model's performance because it:
+
+-Takes the magnitude of errors into account and penalizes larger errors.
+
+-Is in the same units as the data, making it easier to understand.
+
+-Provides a good indication of how well the model fits the actual data.
+
+#Key Observations: MAE (Mean Absolute Error): The lower the MAE, the better. Holt-Winters has the lowest MAE (8.62), followed by TBATS (9.55).
+
+MSE (Mean Squared Error): The lower the MSE, the better. TBATS has the lowest MSE (131.89), followed by Holt-Winters (152.10).
+
+MAPE (Mean Absolute Percentage Error): The lower the MAPE, the better. Holt-Winters has the lowest MAPE (48.10%), followed by SARIMA and ETS (both 61.11%).
+
+RMSE (Root Mean Squared Error): The lower the RMSE, the better. TBATS has the lowest RMSE (11.48), followed by Holt-Winters (12.33).
+
+***Conclusion**:* TBATS has the lowest MSE and RMSE, and while its MAPE is relatively higher (88.03%), the overall performance is strong, particularly in terms of minimizing squared error and the root mean squared error.
+
+Holt-Winters performs well with the lowest MAE and MAPE, and its RMSE is slightly higher than TBATS, but it's still a good contender.
+
+# Save as HTML
+saveWidget(combined_map, file = "Measles_TimeSeries_Analysis_2010_2024.html", selfcontained = TRUE)
+
+```
+
